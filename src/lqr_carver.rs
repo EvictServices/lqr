@@ -4969,39 +4969,32 @@ pub unsafe extern "C" fn lqr_carver_set_state(
         return LQR_ERROR;
     }
 
-    let mut lock_pos: libc::c_int =
-        { ::std::intrinsics::atomic_xadd::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state_lock_queue as *mut libc::c_int, 1 as libc::c_int) };
+use std::sync::atomic::{AtomicI32, Ordering};
+use libc;
 
-    /* GLIB_VERSION < 2.30 */
-    while ({
-        let mut gaig_temp: libc::c_int = 0;
+pub unsafe extern "C" fn lqr_carver_set_state(
+    r: *mut LqrCarver,
+    state: i32,
+    skip_canceled: i32,
+) -> LqrRetVal {
+    let state_lock_queue = &*(r as *mut LqrCarver).state_lock_queue as *mut AtomicI32;
+    let lock_pos: i32 = (*state_lock_queue).fetch_add(1, Ordering::SeqCst);
 
-        *(&mut gaig_temp as *mut libc::c_int) =
-            ::std::intrinsics::atomic_load::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state_lock as *mut libc::c_int as *mut libc::c_int);
-        gaig_temp
-    }) != lock_pos
-    {
+    let state_lock = &*(r as *mut LqrCarver).state_lock as *mut AtomicI32;
+    while (*state_lock).load(Ordering::SeqCst) != lock_pos {
         libc::sleep(10000);
     }
 
-    if skip_canceled != 0
-        && ({
-            let mut gaig_temp: libc::c_int = 0;
-
-            *(&mut gaig_temp as *mut libc::c_int) =
-                ::std::intrinsics::atomic_load::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state as *mut libc::c_int as *mut libc::c_int);
-            gaig_temp
-        }) == LQR_CARVER_STATE_CANCELLED as libc::c_int
-    {
-        ::std::intrinsics::atomic_xadd::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state_lock, 1 as libc::c_int);
+    let current_state = &*(r as *mut LqrCarver).state as *mut AtomicI32;
+    if skip_canceled != 0 && (*current_state).load(Ordering::SeqCst) == LQR_CARVER_STATE_CANCELLED as i32 {
+        (*state_lock).fetch_add(1, Ordering::SeqCst);
         return LQR_OK;
     }
 
-    let mut gais_temp: libc::c_int = state as libc::c_int;
+    (*current_state).store(state as i32, Ordering::SeqCst);
 
-    ::std::intrinsics::atomic_store::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state as *mut libc::c_int as *mut libc::c_int, *&mut gais_temp);
-
-    data_tok.integer = state as libc::c_int;
+    let mut data_tok = _LqrDataTok { carver: r };
+    data_tok.integer = state as i32;
     let mut ret_val: LqrRetVal = LQR_ERROR;
 
     ret_val = crate::lqr_carver_list::lqr_carver_list_foreach_recursive(
@@ -5010,50 +5003,51 @@ pub unsafe extern "C" fn lqr_carver_set_state(
         data_tok,
     );
 
-    if ret_val as libc::c_uint != LQR_OK as libc::c_int as libc::c_uint {
+    if ret_val as u32 != LQR_OK as u32 {
         return ret_val;
     }
 
-    ::std::intrinsics::atomic_xadd::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state_lock, 1 as libc::c_int);
-    return LQR_OK;
+    // Unlock
+    (*state_lock).fetch_add(1, Ordering::SeqCst);
+    LQR_OK
 }
 
-pub unsafe extern "C" fn lqr_carver_set_state_attached(mut r: *mut LqrCarver, mut data: LqrDataTok) -> LqrRetVal {
-    let mut gais_temp: libc::c_int = data.integer;
-
-    ::std::intrinsics::atomic_store::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state as *mut libc::c_int as *mut libc::c_int, *&mut gais_temp);
-    return LQR_OK;
+pub unsafe extern "C" fn lqr_carver_set_state_attached(
+    r: *mut LqrCarver,
+    data: LqrDataTok,
+) -> LqrRetVal {
+    let current_state = &*(r as *mut LqrCarver).state as *mut AtomicI32;
+    (*current_state).store(data.integer, Ordering::SeqCst);
+    LQR_OK
 }
 
-pub unsafe extern "C" fn lqr_carver_get_width(mut r: *mut LqrCarver) -> libc::c_int {
-    return if (*r).transposed != 0 { (*r).h } else { (*r).w };
+pub unsafe extern "C" fn lqr_carver_get_width(r: *mut LqrCarver) -> i32 {
+    if (*r).transposed != 0 { (*r).h } else { (*r).w }
 }
-/* LQR_PUBLIC */
 
-pub unsafe extern "C" fn lqr_carver_get_height(mut r: *mut LqrCarver) -> libc::c_int {
-    return if (*r).transposed != 0 { (*r).w } else { (*r).h };
+pub unsafe extern "C" fn lqr_carver_get_height(r: *mut LqrCarver) -> i32 {
+    if (*r).transposed != 0 { (*r).w } else { (*r).h }
 }
-/* readout reset */
-/* LQR_PUBLIC */
 
-pub unsafe extern "C" fn lqr_carver_scan_reset(mut r: *mut LqrCarver) {
+pub unsafe extern "C" fn lqr_carver_scan_reset(r: *mut LqrCarver) {
     crate::lqr_cursor::lqr_cursor_reset((*r).c);
 }
 
-pub unsafe extern "C" fn lqr_carver_scan_reset_attached(mut r: *mut LqrCarver, mut data: LqrDataTok) -> LqrRetVal {
+pub unsafe extern "C" fn lqr_carver_scan_reset_attached(
+    r: *mut LqrCarver,
+    data: LqrDataTok,
+) -> LqrRetVal {
     lqr_carver_scan_reset(r);
-    return crate::lqr_carver_list::lqr_carver_list_foreach(
+    crate::lqr_carver_list::lqr_carver_list_foreach(
         (*r).attached_list,
         Some(lqr_carver_scan_reset_attached as unsafe extern "C" fn(_: *mut LqrCarver, _: LqrDataTok) -> LqrRetVal),
         data,
-    );
+    )
 }
 
-pub unsafe extern "C" fn lqr_carver_scan_reset_all(mut r: *mut LqrCarver) {
-    let mut data: LqrDataTok = _LqrDataTok {
-        carver: 0 as *mut LqrCarver,
-    };
-    data.data = 0 as *mut libc::c_void;
+pub unsafe extern "C" fn lqr_carver_scan_reset_all(r: *mut LqrCarver) {
+    let mut data: LqrDataTok = _LqrDataTok { carver: std::ptr::null_mut() };
+    data.data = std::ptr::null_mut();
     lqr_carver_scan_reset(r);
     crate::lqr_carver_list::lqr_carver_list_foreach(
         (*r).attached_list,
@@ -5061,35 +5055,31 @@ pub unsafe extern "C" fn lqr_carver_scan_reset_all(mut r: *mut LqrCarver) {
         data,
     );
 }
-/* readout all, pixel by bixel */
-/* LQR_PUBLIC */
 
 pub unsafe extern "C" fn lqr_carver_scan(
-    mut r: *mut LqrCarver,
-    mut x: *mut libc::c_int,
-    mut y: *mut libc::c_int,
-    mut rgb: *mut *mut libc::c_uchar,
-) -> libc::c_int {
-    if (*r).col_depth as libc::c_uint != LQR_COLDEPTH_8I as libc::c_int as libc::c_uint {
-        return 0 as libc::c_int;
+    r: *mut LqrCarver,
+    x: *mut i32,
+    y: *mut i32,
+    rgb: *mut *mut u8,
+) -> i32 {
+    if (*r).col_depth as u32 != LQR_COLDEPTH_8I as i32 as u32 {
+        return 0;
     }
+
     if (*(*r).c).eoc != 0 {
         lqr_carver_scan_reset(r);
-        return 0 as libc::c_int;
+        return 0;
     }
 
     *x = if (*r).transposed != 0 { (*(*r).c).y } else { (*(*r).c).x };
     *y = if (*r).transposed != 0 { (*(*r).c).x } else { (*(*r).c).y };
 
-    let mut k: libc::c_int = 0 as libc::c_int;
-    while k < (*r).channels {
-        *((*r).rgb_ro_buffer as *mut libc::c_uchar).offset(k as isize) =
-            *((*r).rgb as *mut libc::c_uchar).offset(((*(*r).c).now * (*r).channels + k) as isize);
-        k += 1
+    for k in 0..(*r).channels {
+        *((*r).rgb_ro_buffer as *mut u8).add(k as usize) =
+            *((*r).rgb as *mut u8).add(((*(*r).c).now * (*r).channels + k) as usize);
     }
 
-    *rgb = (*r).rgb_ro_buffer as *mut libc::c_uchar;
+    *rgb = (*r).rgb_ro_buffer as *mut u8;
     crate::lqr_cursor::lqr_cursor_next((*r).c);
-    return (0 as libc::c_int == 0) as libc::c_int;
+    1
 }
-/* LQR_PUBLIC */
