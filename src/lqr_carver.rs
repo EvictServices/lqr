@@ -4920,39 +4920,40 @@ pub unsafe extern "C" fn lqr_carver_resize(
         return LQR_USRCANCEL;
     }
 
-    if ::std::intrinsics::atomic_load::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state as *mut libc::c_int) != LQR_CARVER_STATE_STD as _ {
-        return LQR_ERROR;
-    }
+if ::std::intrinsics::atomic_load::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state as *mut libc::c_int) != LQR_CARVER_STATE_STD as _ {
+    return LQR_ERROR;
+}
 
-    match (*r).resize_order as libc::c_uint {
-        0 => {
-            match lqr_carver_resize_width(r, w1) {
-                LQR_OK => {},
-                _ => return LQR_ERROR,
-            };
+match (*r).resize_order as libc::c_uint {
+    0 => {
+        match lqr_carver_resize_width(r, w1) {
+            LQR_OK => {},
+            _ => return LQR_ERROR,
+        };
 
-            match lqr_carver_resize_height(r, h1) {
-                LQR_OK => {},
-                _ => return LQR_ERROR,
-            };
-            /* __LQR_DEBUG__ */
-        },
-        1 => {
-            match lqr_carver_resize_height(r, h1) {
-                LQR_OK => {},
-                _ => return LQR_ERROR,
-            };
+        match lqr_carver_resize_height(r, h1) {
+            LQR_OK => {},
+            _ => return LQR_ERROR,
+        };
+        /* __LQR_DEBUG__ */
+    },
+    1 => {
+        match lqr_carver_resize_height(r, h1) {
+            LQR_OK => {},
+            _ => return LQR_ERROR,
+        };
 
-            match lqr_carver_resize_width(r, w1) {
-                LQR_OK => {},
-                _ => return LQR_ERROR,
-            };
-        },
-        _ => {},
-    }
-    lqr_carver_scan_reset_all(r);
-    /* __LQR_VERBOSE__ */
-    return LQR_OK;
+        match lqr_carver_resize_width(r, w1) {
+            LQR_OK => {},
+            _ => return LQR_ERROR,
+        };
+    },
+    _ => {},
+}
+
+lqr_carver_scan_reset_all(r);
+/* __LQR_VERBOSE__ */
+return LQR_OK;
 }
 
 pub unsafe extern "C" fn lqr_carver_set_state(
@@ -4967,8 +4968,10 @@ pub unsafe extern "C" fn lqr_carver_set_state(
     if ((*r).root == 0 as *mut libc::c_void as *mut LqrCarver) as libc::c_int == 0 as libc::c_int {
         return LQR_ERROR;
     }
+
     let mut lock_pos: libc::c_int =
         { ::std::intrinsics::atomic_xadd::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state_lock_queue as *mut libc::c_int, 1 as libc::c_int) };
+
     /* GLIB_VERSION < 2.30 */
     while ({
         let mut gaig_temp: libc::c_int = 0;
@@ -4980,6 +4983,7 @@ pub unsafe extern "C" fn lqr_carver_set_state(
     {
         libc::sleep(10000);
     }
+
     if skip_canceled != 0
         && ({
             let mut gaig_temp: libc::c_int = 0;
@@ -4992,16 +4996,20 @@ pub unsafe extern "C" fn lqr_carver_set_state(
         ::std::intrinsics::atomic_xadd::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state_lock, 1 as libc::c_int);
         return LQR_OK;
     }
+
     let mut gais_temp: libc::c_int = state as libc::c_int;
 
     ::std::intrinsics::atomic_store::<_, {AtomicOrdering::SeqCst}>(&mut (*r).state as *mut libc::c_int as *mut libc::c_int, *&mut gais_temp);
+
     data_tok.integer = state as libc::c_int;
     let mut ret_val: LqrRetVal = LQR_ERROR;
+
     ret_val = crate::lqr_carver_list::lqr_carver_list_foreach_recursive(
         (*r).attached_list,
         Some(lqr_carver_set_state_attached as unsafe extern "C" fn(_: *mut LqrCarver, _: LqrDataTok) -> LqrRetVal),
         data_tok,
     );
+
     if ret_val as libc::c_uint != LQR_OK as libc::c_int as libc::c_uint {
         return ret_val;
     }
@@ -5069,14 +5077,17 @@ pub unsafe extern "C" fn lqr_carver_scan(
         lqr_carver_scan_reset(r);
         return 0 as libc::c_int;
     }
+
     *x = if (*r).transposed != 0 { (*(*r).c).y } else { (*(*r).c).x };
     *y = if (*r).transposed != 0 { (*(*r).c).x } else { (*(*r).c).y };
+
     let mut k: libc::c_int = 0 as libc::c_int;
     while k < (*r).channels {
         *((*r).rgb_ro_buffer as *mut libc::c_uchar).offset(k as isize) =
             *((*r).rgb as *mut libc::c_uchar).offset(((*(*r).c).now * (*r).channels + k) as isize);
         k += 1
     }
+
     *rgb = (*r).rgb_ro_buffer as *mut libc::c_uchar;
     crate::lqr_cursor::lqr_cursor_next((*r).c);
     return (0 as libc::c_int == 0) as libc::c_int;
